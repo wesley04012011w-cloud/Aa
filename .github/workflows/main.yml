@@ -1,4 +1,4 @@
-name: Build Android APK (ExecuTorch On-Device AI)
+name: Build Android APK from ZIP (ExecuTorch On-Device AI)
 
 on:
   push:
@@ -11,43 +11,57 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: ðŸ“¥ Clonar repositÃ³rio
+      - name: 📥 Clonar repositório
         uses: actions/checkout@v4
 
-      - name: ðŸ” Localizar diretÃ³rio raiz do projeto
-        id: locate_project
+      - name: 📦 Extrair arquivo ZIP do projeto
+        id: extract_zip
         run: |
-          PKG_PATH=$(find . -name "package.json" -not -path "*/node_modules/*" | head -n 1)
-          if [ -z "$PKG_PATH" ]; then
-            echo "âŒ package.json nÃ£o foi encontrado em nenhuma pasta do repositÃ³rio!"
+          # Procura qualquer arquivo .zip no repositório
+          ZIP_FILE=$(find . -name "*.zip" | head -n 1)
+          
+          if [ -z "$ZIP_FILE" ]; then
+            echo "❌ Nenhum arquivo .zip encontrado no repositório!"
             exit 1
           fi
-          PROJECT_DIR=$(dirname "$PKG_PATH")
-          echo "ðŸ“ DiretÃ³rio do projeto encontrado em: $PROJECT_DIR"
-          echo "project_dir=$PROJECT_DIR" >> $GITHUB_OUTPUT
+          
+          echo "📦 Arquivo ZIP encontrado: $ZIP_FILE"
+          mkdir -p /tmp/extracted_project
+          unzip -q "$ZIP_FILE" -d /tmp/extracted_project
+          
+          # Localiza onde o package.json foi extraído
+          PKG_PATH=$(find /tmp/extracted_project -name "package.json" | head -n 1)
+          if [ -z "$PKG_PATH" ]; then
+            echo "❌ package.json não encontrado dentro do arquivo .zip!"
+            exit 1
+          fi
+          
+          PROJECT_ROOT=$(dirname "$PKG_PATH")
+          echo "📁 Raiz do projeto extraído: $PROJECT_ROOT"
+          echo "project_root=$PROJECT_ROOT" >> $GITHUB_OUTPUT
 
-      - name: â˜• Configurar JDK 17
+      - name: ☕ Configurar JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: ðŸŸ¢ Configurar Node.js 20.x
+      - name: 🟢 Configurar Node.js 20.x
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: ðŸ¤– Configurar Android SDK e NDK
+      - name: 🤖 Configurar Android SDK e NDK
         uses: android-actions/setup-android@v3
 
-      - name: ðŸ“¦ Instalar Android NDK e CMake
+      - name: 📦 Instalar Android NDK e CMake
         run: |
           sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
 
-      - name: ðŸ“¦ Instalar dependÃªncias do projeto
-        working-directory: ${{ steps.locate_project.outputs.project_dir }}
+      - name: 📦 Instalar dependências do projeto
+        working-directory: ${{ steps.extract_zip.outputs.project_root }}
         run: |
           if [ -f "yarn.lock" ]; then
             npm install --global yarn
@@ -58,31 +72,31 @@ jobs:
             npm install --legacy-peer-deps
           fi
 
-      - name: âš™ï¸ Configurar permissÃµes do Gradle
-        working-directory: ${{ steps.locate_project.outputs.project_dir }}
+      - name: ⚙️ Configurar permissões do Gradle
+        working-directory: ${{ steps.extract_zip.outputs.project_root }}
         run: |
-          chmod +x android/gradlew || chmod +x gradlew || true
+          chmod +x android/gradlew
 
-      - name: ðŸš€ Compilar APK (Release)
-        working-directory: ${{ steps.locate_project.outputs.project_dir }}/android
+      - name: 🚀 Compilar APK (Release)
+        working-directory: ${{ steps.extract_zip.outputs.project_root }}/android
         run: |
           ./gradlew assembleRelease --no-daemon --stacktrace \
             -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m"
 
-      - name: ðŸ” Localizar APK gerado
+      - name: 🔍 Localizar APK gerado
         id: find_apk
         run: |
-          APK_PATH=$(find . -name "*.apk" -not -path "*/intermediates/*" | head -n 1)
+          APK_PATH=$(find /tmp/extracted_project -name "*.apk" -not -path "*/intermediates/*" | head -n 1)
           if [ -z "$APK_PATH" ]; then
-            echo "âŒ Nenhum APK encontrado!"
+            echo "❌ Nenhum APK encontrado!"
             exit 1
           fi
-          echo "APK encontrado em: $APK_PATH"
+          echo "APK gerado com sucesso em: $APK_PATH"
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
 
-      - name: ðŸ“¤ Fazer upload do APK como artefato
+      - name: 📤 Fazer upload do APK como artefato
         uses: actions/upload-artifact@v4
         with:
-          name: ondevice-ai-app
+          name: ondevice-ai-apk
           path: ${{ steps.find_apk.outputs.apk_path }}
           retention-days: 7
